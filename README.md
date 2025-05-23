@@ -1,7 +1,6 @@
 # back-Docker
 Proeycto node con express para un back para la materia de CI/CD POLI
 
-TEST - LUISA
 # 🛠️ Node.js Backend con Express + Docker
 Este proyecto es una API básica creada con Node.js 20 y Express, lista para ejecutarse en un contenedor Docker. Es ideal como base para el sistema ToDo App..
 
