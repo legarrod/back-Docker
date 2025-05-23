@@ -1,0 +1,15 @@
+{
+  "name": "back-docker",
+  "version": "1.0.0",
+  "description": "Proeycto node con express para un back para la materia de CI/CD POLI",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}

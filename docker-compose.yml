@@ -1,0 +1,12 @@
+version: "3.9"
+
+services:
+  node-app:
+    build: .
+    container_name: node-backend
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    restart: unless-stopped
