@@ -20,11 +20,18 @@ node-docker-app/
 └── README.md
 ├── .gitignore
 └── /src
+|__ /db
 
 # 🧑‍💻 Desarrollo
     🔧 1. Clonar el proyecto
     git https://github.com/legarrod/back-Docker
     cd back-Docker
+
+# 🧑‍💻 Desarrollo con front
+    🔧 2. Clonar el proyecto
+    git https://github.com/legarrod/front-Docker
+    cd front-Docker
+
 
 # 🐳 2. Levantar el servidor con Docker
     docker compose up --build
@@ -32,6 +39,17 @@ node-docker-app/
     - Construirá una imagen Docker basada en Node.js 20 Alpine.
     - Instalará las dependencias del proyecto.
     - Levantará un servidor Express en http://localhost:3000.
+
+# 3. Nota
+    Si va a levantar los 2 sitios juntos tener la siguiente estructura de carpetas ya que el docker-compose
+    levantara front, back y bd y la migrara con la informacion necesaria, 
+    Code Integracion Continua/
+    ├── back-Docker
+    ├── docker-compose.yml
+    ├── front-Docket
+    ├── db
+
+    la carpeta de db esta dentro del repositorio back-Docker
 
 # 🧪 Endpoints
     Método	Ruta	Descripción
