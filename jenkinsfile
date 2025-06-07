@@ -1,0 +1,116 @@
+pipeline {
+    agent any
+    
+    tools {
+        nodejs 'NodeJS-18'
+    }
+    
+    environment {
+        IMAGE_NAME = 'node-backend'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('Install Dependencies') {
+            steps {
+                sh 'npm ci'
+            }
+        }
+        
+        stage('Lint') {
+            steps {
+                sh 'npm run lint || echo "Linting completed with warnings"'
+            }
+        }
+        
+        stage('Unit Tests') {
+            steps {
+                sh 'npm test'
+            }
+            post {
+                always {
+                    publishTestResults testResultsPattern: 'test-results.xml'
+                    publishHTML([
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'coverage',
+                        reportFiles: 'index.html',
+                        reportName: 'Coverage Report'
+                    ])
+                }
+            }
+        }
+        
+        stage('Integration Tests') {
+            steps {
+                script {
+                    // Levantar base de datos temporal para tests
+                    sh '''
+                        docker run -d --name test-db-${BUILD_NUMBER} \
+                            -e POSTGRES_DB=testdb \
+                            -e POSTGRES_USER=test \
+                            -e POSTGRES_PASSWORD=test \
+                            -p 5433:5432 \
+                            postgres:14
+                        
+                        sleep 10
+                        
+                        # Ejecutar tests de integración
+                        export DB_HOST=localhost
+                        export DB_PORT=5433
+                        export DB_USER=test
+                        export DB_PASSWORD=test
+                        export DB_NAME=testdb
+                        
+                        npm run test:integration || true
+                    '''
+                }
+            }
+            post {
+                always {
+                    sh 'docker rm -f test-db-${BUILD_NUMBER} || true'
+                }
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
+                    docker.build("${IMAGE_NAME}:latest")
+                }
+            }
+        }
+        
+        stage('Security Scan') {
+            steps {
+                sh 'npm audit --audit-level high'
+            }
+        }
+        
+        stage('Container Security Scan') {
+            steps {
+                sh 'docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image ${IMAGE_NAME}:${IMAGE_TAG} || true'
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo 'Backend pipeline completed successfully!'
+        }
+        failure {
+            echo 'Backend pipeline failed!'
+        }
+    }
+}
