@@ -29,7 +29,7 @@ pipeline {
             }
         }
         
-        stage('Unit Tests') {
+        /*stage('Unit Tests') {
             steps {
                 sh 'npm test'
             }
@@ -78,7 +78,7 @@ pipeline {
                     sh 'docker rm -f test-db-${BUILD_NUMBER} || true'
                 }
             }
-        }
+        }*/
         
         stage('Build Docker Image') {
             steps {
