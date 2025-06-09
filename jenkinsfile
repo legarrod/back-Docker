@@ -62,7 +62,9 @@ pipeline {
         
         stage('Code Quality & Linting') {
             when {
-                not { params.SKIP_TESTS == true }
+                not { 
+                    params.SKIP_TESTS 
+                }
             }
             steps {
                 echo "Running code quality checks..."
@@ -79,7 +81,9 @@ pipeline {
         
         stage('Unit Tests') {
             when {
-                not { params.SKIP_TESTS == true }
+                not { 
+                    params.SKIP_TESTS 
+                }
             }
             steps {
                 echo "Running unit tests..."
@@ -106,7 +110,9 @@ pipeline {
         stage('Integration Tests') {
             when {
                 allOf {
-                    not { params.SKIP_INTEGRATION_TESTS == true }
+                    not { 
+                        params.SKIP_INTEGRATION_TESTS 
+                    }
                     anyOf {
                         equals expected: 'staging', actual: params.ENVIRONMENT
                         equals expected: 'production', actual: params.ENVIRONMENT
