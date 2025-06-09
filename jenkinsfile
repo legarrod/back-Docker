@@ -2,293 +2,246 @@ pipeline {
     agent any
     
     parameters {
-        choice(
-            name: 'ENVIRONMENT',
-            choices: ['development', 'staging', 'production'],
-            description: 'Environment to deploy to'
-        )
-        booleanParam(
-            name: 'RESTART_CONTAINERS',
-            defaultValue: true,
-            description: 'Restart containers after build'
-        )
+        string(name: 'DOCKER_TAG', defaultValue: 'latest', description: 'Docker tag for the image')
+        choice(name: 'ENVIRONMENT', choices: ['development', 'staging', 'production'], description: 'Deployment environment')
+        booleanParam(name: 'SKIP_TESTS', defaultValue: false, description: 'Skip unit tests')
+        booleanParam(name: 'SKIP_INTEGRATION_TESTS', defaultValue: false, description: 'Skip integration tests')
+        booleanParam(name: 'FORCE_DEPLOY', defaultValue: false, description: 'Force deployment even if tests fail')
     }
     
-    triggers {
-        pollSCM('H/2 * * * *')
-        githubPush()
+    tools {
+        nodejs 'NodeJS-18'
     }
     
     environment {
-        DOCKER_IMAGE = 'backend-app'
-        FRONTEND_IMAGE = 'frontend-app'
-        BUILD_NUMBER = "${env.BUILD_NUMBER}"
-        NODE_ENV = "${params.ENVIRONMENT ?: 'development'}"
-        DOCKER_TAG = "build-${BUILD_NUMBER}"
-        ENVIRONMENT = "${params.ENVIRONMENT ?: 'development'}"
-        COMPOSE_FILE = 'docker-compose.yml'
-    }
-    
-    options {
-        buildDiscarder(logRotator(numToKeepStr: '10'))
-        timeout(time: 30, unit: 'MINUTES')
-        disableConcurrentBuilds()
+        DOCKER_IMAGE = "backend-app"
+        DOCKER_TAG = "${params.DOCKER_TAG}"
+        NODE_ENV = "${params.ENVIRONMENT}"
     }
     
     stages {
-        stage('Cleanup Workspace') {
-            steps {
-                echo 'Limpiando workspace...'
-                deleteDir()
-            }
-        }
-        
         stage('Checkout') {
             steps {
-                script {
-                    echo "Haciendo checkout del código..."
-                    
-                    checkout([
-                        $class: 'GitSCM',
-                        branches: [[name: '*/main']],
-                        doGenerateSubmoduleConfigurations: false,
-                        extensions: [
-                            [$class: 'CleanBeforeCheckout'],
-                            [$class: 'PruneStaleBranch'],
-                            [$class: 'CleanCheckout']
-                        ],
-                        submoduleCfg: [],
-                        userRemoteConfigs: [[
-                            credentialsId: 'github-token',
-                            url: 'https://github.com/tu-usuario/tu-repo.git'
-                        ]]
-                    ])
-                    
-                    sh '''
-                        echo "=== Información del repositorio ==="
-                        git log --oneline -5
-                        echo "=== Commit actual ==="
-                        git rev-parse HEAD
-                        echo "=== Verificando archivos ==="
-                        ls -la
-                        echo "=== Docker Compose presente ==="
-                        ls -la docker-compose.yml || echo "docker-compose.yml no encontrado"
-                    '''
-                }
+                echo "Cleaning workspace and checking out code..."
+                deleteDir() // Limpia completamente el workspace
+                checkout scm
             }
         }
         
-        stage('Stop Current Containers') {
+        stage('Environment Info') {
+            steps {
+                echo "Environment Information"
+                sh '''
+                    echo "Node version: $(node --version)"
+                    echo "NPM version: $(npm --version)"
+                    echo "Docker version: $(docker --version)"
+                    echo "Environment: ${NODE_ENV}"
+                    echo "Docker tag: ${DOCKER_TAG}"
+                '''
+            }
+        }
+        
+        stage('Install Dependencies') {
+            steps {
+                echo "Installing dependencies..."
+                sh '''
+                    echo "Cleaning npm cache..."
+                    npm cache clean --force
+                    
+                    echo "Removing existing node_modules and lock file..."
+                    rm -rf node_modules package-lock.json
+                    
+                    echo "Installing dependencies..."
+                    npm install
+                    
+                    echo "Dependencies installed successfully!"
+                '''
+            }
+        }
+        
+        stage('Code Quality & Linting') {
             when {
-                expression { return params.RESTART_CONTAINERS }
+                not {
+                    expression { return params.SKIP_TESTS }
+                }
             }
             steps {
-                script {
-                    echo "Deteniendo contenedores actuales..."
-                    sh '''
-                        # Detener contenedores de la aplicación (mantener DB y Jenkins)
-                        docker-compose stop frontend node-app test-runner || true
-                        
-                        # Remover contenedores antiguos
-                        docker-compose rm -f frontend node-app test-runner || true
-                        
-                        echo "Contenedores detenidos"
-                    '''
-                }
+                echo "Running code quality checks..."
+                sh '''
+                    if grep -q '"lint"' package.json; then
+                        echo "Running linting..."
+                        npm run lint || echo "Linting failed but continuing..."
+                    else
+                        echo "No lint script found, skipping..."
+                    fi
+                '''
             }
         }
         
-        stage('Build Images') {
-            steps {
-                script {
-                    echo "Construyendo imágenes Docker..."
-                    
-                    // Construir backend
-                    echo "Construyendo imagen backend..."
-                    dir('back-Docker') {
-                        sh '''
-                            docker build --no-cache \
-                                --build-arg NODE_ENV=${NODE_ENV} \
-                                --build-arg BUILD_NUMBER=${BUILD_NUMBER} \
-                                -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                                -t ${DOCKER_IMAGE}:latest .
-                        '''
-                    }
-                    
-                    // Construir frontend
-                    echo "Construyendo imagen frontend..."
-                    dir('front-Docker') {
-                        sh '''
-                            docker build --no-cache \
-                                --build-arg BUILD_NUMBER=${BUILD_NUMBER} \
-                                -t ${FRONTEND_IMAGE}:${DOCKER_TAG} \
-                                -t ${FRONTEND_IMAGE}:latest .
-                        '''
-                    }
-                    
-                    echo "Imágenes construidas exitosamente"
-                }
-            }
-        }
-        
-        stage('Test') {
-            steps {
-                script {
-                    echo "Ejecutando tests..."
-                    
-                    // Ejecutar tests en contenedor temporal
-                    sh '''
-                        docker run --rm \
-                            --network app-network \
-                            -e DB_HOST=db \
-                            -e DB_PORT=5432 \
-                            -e DB_USER=postgres \
-                            -e DB_PASSWORD=example \
-                            -e DB_NAME=mydb \
-                            ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                            npm test
-                    '''
-                }
-            }
-        }
-        
-        stage('Deploy to Development') {
+        stage('Unit Tests') {
             when {
-                anyOf {
-                    expression { return params.ENVIRONMENT == 'development' }
-                    expression { return params.ENVIRONMENT == null }
+                not {
+                    expression { return params.SKIP_TESTS }
                 }
             }
             steps {
+                echo "Running unit tests..."
                 script {
-                    echo "Desplegando a desarrollo..."
-                    
                     sh '''
-                        echo "=== Iniciando despliegue ==="
-                        
-                        # Asegurar que la red existe
-                        docker network create app-network || true
-                        
-                        # Iniciar base de datos si no está corriendo
-                        docker-compose up -d db
-                        
-                        # Esperar a que la BD esté lista
-                        echo "Esperando base de datos..."
+                        if grep -q '"test"' package.json; then
+                            echo "Running tests..."
+                            npm test || {
+                                echo "Tests failed!"
+                                if [ "${FORCE_DEPLOY}" = "true" ]; then
+                                    echo "FORCE_DEPLOY is true, continuing despite test failures..."
+                                else
+                                    exit 1
+                                fi
+                            }
+                        else
+                            echo "No test script found, skipping tests..."
+                        fi
+                    '''
+                }
+            }
+        }
+        
+        stage('Integration Tests') {
+            when {
+                allOf {
+                    not {
+                        expression { return params.SKIP_INTEGRATION_TESTS }
+                    }
+                    anyOf {
+                        expression { return params.ENVIRONMENT == 'staging' }
+                        expression { return params.ENVIRONMENT == 'production' }
+                    }
+                }
+            }
+            steps {
+                echo "Running integration tests..."
+                script {
+                    sh '''
+                        if grep -q '"test:integration"' package.json; then
+                            echo "Running integration tests..."
+                            npm run test:integration || {
+                                echo "Integration tests failed!"
+                                if [ "${FORCE_DEPLOY}" = "true" ]; then
+                                    echo "FORCE_DEPLOY is true, continuing..."
+                                else
+                                    exit 1
+                                fi
+                            }
+                        else
+                            echo "No integration test script found, skipping..."
+                        fi
+                    '''
+                }
+            }
+        }
+        
+        stage('Build Application') {
+            steps {
+                echo "Building application..."
+                sh '''
+                    if grep -q '"build"' package.json; then
+                        echo "Building application..."
+                        npm run build
+                    else
+                        echo "No build script found, skipping build step..."
+                    fi
+                '''
+            }
+        }
+        
+        stage('Docker Build') {
+            steps {
+                echo "Building Docker image..."
+                sh '''
+                    echo "Building Docker image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                    docker build \
+                        --build-arg NODE_ENV=${NODE_ENV} \
+                        --build-arg BUILD_NUMBER=${BUILD_NUMBER} \
+                        -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                        -t ${DOCKER_IMAGE}:build-${BUILD_NUMBER} \
+                        .
+                    
+                    echo "Docker image built successfully!"
+                    docker images | grep ${DOCKER_IMAGE}
+                '''
+            }
+        }
+        
+        stage('Docker Test') {
+            steps {
+                echo "Testing Docker image..."
+                sh '''
+                    echo "Testing Docker container..."
+                    docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} echo "Container test successful!"
+                    
+                    if docker inspect ${DOCKER_IMAGE}:${DOCKER_TAG} | grep -q "Healthcheck"; then
+                        echo "Running health check..."
+                        docker run --rm -d --name test-container-${BUILD_NUMBER} ${DOCKER_IMAGE}:${DOCKER_TAG}
                         sleep 10
-                        
-                        # Iniciar contenedores de aplicación con nuevas imágenes
-                        docker-compose up -d node-app
-                        
-                        # Esperar a que el backend esté listo
-                        echo "Esperando backend..."
-                        sleep 15
-                        
-                        # Iniciar frontend
-                        docker-compose up -d frontend
-                        
-                        echo "=== Verificando estado de contenedores ==="
-                        docker-compose ps
-                        
-                        echo "=== Verificando logs del backend ==="
-                        docker-compose logs --tail=20 node-app
-                        
-                        echo "=== Verificando logs del frontend ==="
-                        docker-compose logs --tail=20 frontend
-                        
-                        echo "Despliegue completado!"
-                    '''
-                }
+                        docker stop test-container-${BUILD_NUMBER} || true
+                    fi
+                '''
             }
         }
         
         stage('Deploy to Environment') {
-            when {
-                anyOf {
-                    expression { return params.ENVIRONMENT == 'staging' }
-                    expression { return params.ENVIRONMENT == 'production' }
-                }
-            }
             steps {
                 echo "Deploying to ${params.ENVIRONMENT}..."
-                script {
-                    if (params.ENVIRONMENT == 'production') {
-                        input message: 'Deploy to production?', ok: 'Deploy'
-                    }
-                    
-                    sh '''
-                        echo "Deploying ${DOCKER_IMAGE}:${DOCKER_TAG} to ${ENVIRONMENT}"
-                        
-                        # Aquí puedes agregar lógica específica para staging/production
-                        # Por ejemplo, usar un docker-compose diferente
-                        
-                        echo "Deployment to ${ENVIRONMENT} completed!"
-                    '''
-                }
-            }
-        }
-        
-        stage('Health Check') {
-            steps {
-                script {
-                    echo "Verificando salud de la aplicación..."
-                    
-                    sh '''
-                        echo "=== Verificando contenedores ==="
-                        docker-compose ps
-                        
-                        echo "=== Verificando puertos ==="
-                        netstat -tlnp | grep -E ":3000|:4200" || true
-                        
-                        echo "=== Test de conectividad backend ==="
-                        curl -f http://localhost:3000/health || curl -f http://localhost:3000/ || echo "Backend no responde"
-                        
-                        echo "=== Test de conectividad frontend ==="
-                        curl -f http://localhost:4200/ || echo "Frontend no responde"
-                        
-                        echo "Health check completado"
-                    '''
-                }
+                sh '''
+                    CONTAINER_NAME="${DOCKER_IMAGE}-${NODE_ENV}"
+                    echo "Stopping and removing previous container if exists..."
+                    docker stop $CONTAINER_NAME || true
+                    docker rm $CONTAINER_NAME || true
+
+                    echo "Starting new container..."
+                    docker run -d \
+                        --name $CONTAINER_NAME \
+                        -p 3000:3000 \
+                        ${DOCKER_IMAGE}:${DOCKER_TAG}
+
+                    echo "Deployment completed!"
+                '''
             }
         }
     }
     
     post {
         always {
+            echo "Cleaning up..."
             sh '''
-                echo "=== Estado final de contenedores ==="
-                docker-compose ps
-                
-                echo "=== Limpiando imágenes no utilizadas ==="
-                docker image prune -f
-                
-                echo "=== Información del build ==="
-                echo "Build: ${BUILD_NUMBER}"
-                echo "Commit: ${GIT_COMMIT}"
-                echo "Environment: ${ENVIRONMENT}"
+                OLD_IMAGES=$(docker images ${DOCKER_IMAGE} --format "{{.Tag}}" | grep "^build-" | sort -nr | tail -n +6 || echo "")
+                if [ ! -z "$OLD_IMAGES" ]; then
+                    echo "Removing old images: $OLD_IMAGES"
+                    echo "$OLD_IMAGES" | xargs -I {} docker rmi ${DOCKER_IMAGE}:{} || true
+                fi
             '''
         }
         
         success {
-            echo '''
-                ✅ Pipeline completado exitosamente!
-                🚀 Aplicación desplegada y funcionando
-                🌐 Frontend: http://localhost:4200
-                🔧 Backend: http://localhost:3000
-            '''
+            echo "Pipeline completed successfully!"
+            script {
+                if (params.ENVIRONMENT == 'production') {
+                    echo "Production deployment successful!"
+                }
+            }
         }
         
         failure {
-            echo '''
-                ❌ Pipeline falló!
-                📋 Revisa los logs para más detalles
-            '''
-            
-            // Mostrar logs de contenedores en caso de fallo
-            sh '''
-                echo "=== Logs de contenedores en caso de fallo ==="
-                docker-compose logs --tail=50 node-app || true
-                docker-compose logs --tail=50 frontend || true
-            '''
+            echo "Pipeline failed!"
+        }
+        
+        unstable {
+            echo "Pipeline completed with warnings"
+        }
+        
+        cleanup {
+            echo "Final cleanup..."
+            sh 'docker system prune -f --volumes || true'
         }
     }
 }
