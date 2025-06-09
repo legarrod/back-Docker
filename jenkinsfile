@@ -22,10 +22,9 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                echo "Checking out code..."
+                echo "Cleaning workspace and checking out code..."
+                deleteDir() // Limpia completamente el workspace
                 checkout scm
-                sh 'ls -la'
-                sh 'echo "Repository checked out successfully"'
             }
         }
         
