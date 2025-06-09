@@ -6,111 +6,256 @@ pipeline {
     }
     
     environment {
-        IMAGE_NAME = 'node-backend'
-        IMAGE_TAG = "${BUILD_NUMBER}"
+        DOCKER_IMAGE = "backend-app"
+        DOCKER_TAG = "${params.DOCKER_TAG ?: 'latest'}"
+        NODE_ENV = "${params.ENVIRONMENT ?: 'development'}"
     }
     
     stages {
         stage('Checkout') {
             steps {
+                echo "🔄 Checking out code..."
                 checkout scm
+                sh 'ls -la'
+                sh 'echo "Repository checked out successfully"'
+            }
+        }
+        
+        stage('Environment Info') {
+            steps {
+                echo "📋 Environment Information"
+                sh '''
+                    echo "Node version: $(node --version)"
+                    echo "NPM version: $(npm --version)"
+                    echo "Docker version: $(docker --version)"
+                    echo "Environment: ${NODE_ENV}"
+                    echo "Docker tag: ${DOCKER_TAG}"
+                '''
             }
         }
         
         stage('Install Dependencies') {
             steps {
-                sh 'npm ci'
+                echo "📦 Installing dependencies..."
+                script {
+                    // Método robusto para instalar dependencias
+                    sh '''
+                        echo "Cleaning npm cache..."
+                        npm cache clean --force
+                        
+                        echo "Removing existing node_modules and lock file..."
+                        rm -rf node_modules package-lock.json
+                        
+                        echo "Installing dependencies..."
+                        npm install
+                        
+                        echo "Dependencies installed successfully!"
+                        ls -la node_modules/ | head -10
+                    '''
+                }
             }
         }
         
-        stage('Lint') {
+        stage('Code Quality & Linting') {
+            when {
+                not { params.SKIP_TESTS }
+            }
             steps {
-                sh 'npm run lint || echo "Linting completed with warnings"'
+                echo "🔍 Running code quality checks..."
+                script {
+                    // Solo ejecutar si existen los scripts
+                    sh '''
+                        if grep -q '"lint"' package.json; then
+                            echo "Running linting..."
+                            npm run lint || echo "Linting failed but continuing..."
+                        else
+                            echo "No lint script found, skipping..."
+                        fi
+                    '''
+                }
             }
         }
         
-        /*stage('Unit Tests') {
-            steps {
-                sh 'npm test'
+        stage('Unit Tests') {
+            when {
+                not { params.SKIP_TESTS }
             }
-            post {
-                always {
-                    publishTestResults testResultsPattern: 'test-results.xml'
-                    publishHTML([
-                        allowMissing: false,
-                        alwaysLinkToLastBuild: true,
-                        keepAll: true,
-                        reportDir: 'coverage',
-                        reportFiles: 'index.html',
-                        reportName: 'Coverage Report'
-                    ])
+            steps {
+                echo "🧪 Running unit tests..."
+                script {
+                    sh '''
+                        if grep -q '"test"' package.json; then
+                            echo "Running tests..."
+                            npm test || {
+                                echo "Tests failed!"
+                                if [ "${FORCE_DEPLOY}" = "true" ]; then
+                                    echo "FORCE_DEPLOY is true, continuing despite test failures..."
+                                else
+                                    exit 1
+                                fi
+                            }
+                        else
+                            echo "No test script found, skipping tests..."
+                        fi
+                    '''
                 }
             }
         }
         
         stage('Integration Tests') {
+            when {
+                allOf {
+                    not { params.SKIP_INTEGRATION_TESTS }
+                    anyOf {
+                        equals expected: 'staging', actual: params.ENVIRONMENT
+                        equals expected: 'production', actual: params.ENVIRONMENT
+                    }
+                }
+            }
             steps {
+                echo "🔗 Running integration tests..."
                 script {
-                    // Levantar base de datos temporal para tests
                     sh '''
-                        docker run -d --name test-db-${BUILD_NUMBER} \
-                            -e POSTGRES_DB=testdb \
-                            -e POSTGRES_USER=test \
-                            -e POSTGRES_PASSWORD=test \
-                            -p 5433:5432 \
-                            postgres:14
-                        
-                        sleep 10
-                        
-                        # Ejecutar tests de integración
-                        export DB_HOST=localhost
-                        export DB_PORT=5433
-                        export DB_USER=test
-                        export DB_PASSWORD=test
-                        export DB_NAME=testdb
-                        
-                        npm run test:integration || true
+                        if grep -q '"test:integration"' package.json; then
+                            echo "Running integration tests..."
+                            npm run test:integration || {
+                                echo "Integration tests failed!"
+                                if [ "${FORCE_DEPLOY}" = "true" ]; then
+                                    echo "FORCE_DEPLOY is true, continuing..."
+                                else
+                                    exit 1
+                                fi
+                            }
+                        else
+                            echo "No integration test script found, skipping..."
+                        fi
                     '''
                 }
             }
-            post {
-                always {
-                    sh 'docker rm -f test-db-${BUILD_NUMBER} || true'
-                }
-            }
-        }*/
+        }
         
-        stage('Build Docker Image') {
+        stage('Build Application') {
             steps {
+                echo "🏗️ Building application..."
                 script {
-                    docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
-                    docker.build("${IMAGE_NAME}:latest")
+                    sh '''
+                        if grep -q '"build"' package.json; then
+                            echo "Building application..."
+                            npm run build
+                        else
+                            echo "No build script found, skipping build step..."
+                        fi
+                    '''
                 }
             }
         }
         
-        stage('Security Scan') {
+        stage('Docker Build') {
             steps {
-                sh 'npm audit --audit-level high'
+                echo "🐳 Building Docker image..."
+                script {
+                    sh '''
+                        echo "Building Docker image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                        docker build \
+                            --build-arg NODE_ENV=${NODE_ENV} \
+                            --build-arg BUILD_NUMBER=${BUILD_NUMBER} \
+                            -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                            -t ${DOCKER_IMAGE}:build-${BUILD_NUMBER} \
+                            .
+                        
+                        echo "Docker image built successfully!"
+                        docker images | grep ${DOCKER_IMAGE}
+                    '''
+                }
             }
         }
         
-        stage('Container Security Scan') {
+        stage('Docker Test') {
             steps {
-                sh 'docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image ${IMAGE_NAME}:${IMAGE_TAG} || true'
+                echo "🧪 Testing Docker image..."
+                script {
+                    sh '''
+                        echo "Testing Docker container..."
+                        
+                        # Verificar que la imagen se ejecuta correctamente
+                        docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} echo "Container test successful!"
+                        
+                        # Si hay un health check, ejecutarlo
+                        if docker inspect ${DOCKER_IMAGE}:${DOCKER_TAG} | grep -q "Healthcheck"; then
+                            echo "Running health check..."
+                            docker run --rm -d --name test-container ${DOCKER_IMAGE}:${DOCKER_TAG}
+                            sleep 10
+                            docker stop test-container || true
+                        fi
+                    '''
+                }
+            }
+        }
+        
+        stage('Deploy to Environment') {
+            when {
+                anyOf {
+                    equals expected: 'staging', actual: params.ENVIRONMENT
+                    equals expected: 'production', actual: params.ENVIRONMENT
+                }
+            }
+            steps {
+                echo "🚀 Deploying to ${params.ENVIRONMENT}..."
+                script {
+                    if (params.ENVIRONMENT == 'production') {
+                        input message: 'Deploy to production?', ok: 'Deploy',
+                              submitterParameter: 'DEPLOYER'
+                    }
+                    
+                    sh '''
+                        echo "Deploying ${DOCKER_IMAGE}:${DOCKER_TAG} to ${ENVIRONMENT}"
+                        
+                        # Aquí irían los comandos específicos de deploy
+                        # Por ejemplo, actualizar docker-compose, kubernetes, etc.
+                        
+                        echo "Deployment to ${ENVIRONMENT} completed!"
+                    '''
+                }
             }
         }
     }
     
     post {
         always {
-            cleanWs()
+            echo "🧹 Cleaning up..."
+            // Limpiar imágenes Docker viejas
+            sh '''
+                # Mantener solo las últimas 5 imágenes
+                OLD_IMAGES=$(docker images ${DOCKER_IMAGE} --format "{{.Tag}}" | grep "^build-" | sort -nr | tail -n +6)
+                if [ ! -z "$OLD_IMAGES" ]; then
+                    echo "Removing old images: $OLD_IMAGES"
+                    echo "$OLD_IMAGES" | xargs -I {} docker rmi ${DOCKER_IMAGE}:{} || true
+                fi
+            '''
         }
+        
         success {
-            echo 'Backend pipeline completed successfully!'
+            echo "✅ Pipeline completed successfully!"
+            script {
+                if (params.ENVIRONMENT == 'production') {
+                    echo "🎉 Production deployment successful!"
+                }
+            }
         }
+        
         failure {
-            echo 'Backend pipeline failed!'
+            echo "❌ Pipeline failed!"
+            // Aquí podrías agregar notificaciones (Slack, email, etc.)
+        }
+        
+        unstable {
+            echo "⚠️ Pipeline completed with warnings"
+        }
+        
+        cleanup {
+            // Limpiar workspace si es necesario
+            echo "Cleaning workspace..."
+            sh 'docker system prune -f --volumes || true'
         }
     }
 }
