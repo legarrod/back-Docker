@@ -15,14 +15,14 @@ pipeline {
     
     environment {
         DOCKER_IMAGE = "backend-app"
-        DOCKER_TAG = "${params.DOCKER_TAG ?: 'latest'}"
-        NODE_ENV = "${params.ENVIRONMENT ?: 'development'}"
+        DOCKER_TAG = "${params.DOCKER_TAG}"
+        NODE_ENV = "${params.ENVIRONMENT}"
     }
     
     stages {
         stage('Checkout') {
             steps {
-                echo "🔄 Checking out code..."
+                echo "Checking out code..."
                 checkout scm
                 sh 'ls -la'
                 sh 'echo "Repository checked out successfully"'
@@ -31,7 +31,7 @@ pipeline {
         
         stage('Environment Info') {
             steps {
-                echo "📋 Environment Information"
+                echo "Environment Information"
                 sh '''
                     echo "Node version: $(node --version)"
                     echo "NPM version: $(npm --version)"
@@ -44,22 +44,19 @@ pipeline {
         
         stage('Install Dependencies') {
             steps {
-                echo "📦 Installing dependencies..."
-                script {
-                    sh '''
-                        echo "Cleaning npm cache..."
-                        npm cache clean --force
-                        
-                        echo "Removing existing node_modules and lock file..."
-                        rm -rf node_modules package-lock.json
-                        
-                        echo "Installing dependencies..."
-                        npm install
-                        
-                        echo "Dependencies installed successfully!"
-                        ls -la node_modules/ | head -10
-                    '''
-                }
+                echo "Installing dependencies..."
+                sh '''
+                    echo "Cleaning npm cache..."
+                    npm cache clean --force
+                    
+                    echo "Removing existing node_modules and lock file..."
+                    rm -rf node_modules package-lock.json
+                    
+                    echo "Installing dependencies..."
+                    npm install
+                    
+                    echo "Dependencies installed successfully!"
+                '''
             }
         }
         
@@ -68,17 +65,15 @@ pipeline {
                 not { params.SKIP_TESTS == true }
             }
             steps {
-                echo "🔍 Running code quality checks..."
-                script {
-                    sh '''
-                        if grep -q '"lint"' package.json; then
-                            echo "Running linting..."
-                            npm run lint || echo "Linting failed but continuing..."
-                        else
-                            echo "No lint script found, skipping..."
-                        fi
-                    '''
-                }
+                echo "Running code quality checks..."
+                sh '''
+                    if grep -q '"lint"' package.json; then
+                        echo "Running linting..."
+                        npm run lint || echo "Linting failed but continuing..."
+                    else
+                        echo "No lint script found, skipping..."
+                    fi
+                '''
             }
         }
         
@@ -87,7 +82,7 @@ pipeline {
                 not { params.SKIP_TESTS == true }
             }
             steps {
-                echo "🧪 Running unit tests..."
+                echo "Running unit tests..."
                 script {
                     sh '''
                         if grep -q '"test"' package.json; then
@@ -119,7 +114,7 @@ pipeline {
                 }
             }
             steps {
-                echo "🔗 Running integration tests..."
+                echo "Running integration tests..."
                 script {
                     sh '''
                         if grep -q '"test:integration"' package.json; then
@@ -142,57 +137,50 @@ pipeline {
         
         stage('Build Application') {
             steps {
-                echo "🏗️ Building application..."
-                script {
-                    sh '''
-                        if grep -q '"build"' package.json; then
-                            echo "Building application..."
-                            npm run build
-                        else
-                            echo "No build script found, skipping build step..."
-                        fi
-                    '''
-                }
+                echo "Building application..."
+                sh '''
+                    if grep -q '"build"' package.json; then
+                        echo "Building application..."
+                        npm run build
+                    else
+                        echo "No build script found, skipping build step..."
+                    fi
+                '''
             }
         }
         
         stage('Docker Build') {
             steps {
-                echo "🐳 Building Docker image..."
-                script {
-                    sh '''
-                        echo "Building Docker image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                        docker build \
-                            --build-arg NODE_ENV=${NODE_ENV} \
-                            --build-arg BUILD_NUMBER=${BUILD_NUMBER} \
-                            -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                            -t ${DOCKER_IMAGE}:build-${BUILD_NUMBER} \
-                            .
-                        
-                        echo "Docker image built successfully!"
-                        docker images | grep ${DOCKER_IMAGE}
-                    '''
-                }
+                echo "Building Docker image..."
+                sh '''
+                    echo "Building Docker image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                    docker build \
+                        --build-arg NODE_ENV=${NODE_ENV} \
+                        --build-arg BUILD_NUMBER=${BUILD_NUMBER} \
+                        -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                        -t ${DOCKER_IMAGE}:build-${BUILD_NUMBER} \
+                        .
+                    
+                    echo "Docker image built successfully!"
+                    docker images | grep ${DOCKER_IMAGE}
+                '''
             }
         }
         
         stage('Docker Test') {
             steps {
-                echo "🧪 Testing Docker image..."
-                script {
-                    sh '''
-                        echo "Testing Docker container..."
-                        
-                        docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} echo "Container test successful!"
-                        
-                        if docker inspect ${DOCKER_IMAGE}:${DOCKER_TAG} | grep -q "Healthcheck"; then
-                            echo "Running health check..."
-                            docker run --rm -d --name test-container ${DOCKER_IMAGE}:${DOCKER_TAG}
-                            sleep 10
-                            docker stop test-container || true
-                        fi
-                    '''
-                }
+                echo "Testing Docker image..."
+                sh '''
+                    echo "Testing Docker container..."
+                    docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} echo "Container test successful!"
+                    
+                    if docker inspect ${DOCKER_IMAGE}:${DOCKER_TAG} | grep -q "Healthcheck"; then
+                        echo "Running health check..."
+                        docker run --rm -d --name test-container-${BUILD_NUMBER} ${DOCKER_IMAGE}:${DOCKER_TAG}
+                        sleep 10
+                        docker stop test-container-${BUILD_NUMBER} || true
+                    fi
+                '''
             }
         }
         
@@ -204,11 +192,10 @@ pipeline {
                 }
             }
             steps {
-                echo "🚀 Deploying to ${params.ENVIRONMENT}..."
+                echo "Deploying to ${params.ENVIRONMENT}..."
                 script {
                     if (params.ENVIRONMENT == 'production') {
-                        input message: 'Deploy to production?', ok: 'Deploy',
-                              submitterParameter: 'DEPLOYER'
+                        input message: 'Deploy to production?', ok: 'Deploy'
                     }
                     
                     sh '''
@@ -222,40 +209,36 @@ pipeline {
     
     post {
         always {
-            echo "🧹 Cleaning up..."
-            script {
-                sh '''
-                    OLD_IMAGES=$(docker images ${DOCKER_IMAGE} --format "{{.Tag}}" | grep "^build-" | sort -nr | tail -n +6)
-                    if [ ! -z "$OLD_IMAGES" ]; then
-                        echo "Removing old images: $OLD_IMAGES"
-                        echo "$OLD_IMAGES" | xargs -I {} docker rmi ${DOCKER_IMAGE}:{} || true
-                    fi
-                '''
-            }
+            echo "Cleaning up..."
+            sh '''
+                OLD_IMAGES=$(docker images ${DOCKER_IMAGE} --format "{{.Tag}}" | grep "^build-" | sort -nr | tail -n +6 || echo "")
+                if [ ! -z "$OLD_IMAGES" ]; then
+                    echo "Removing old images: $OLD_IMAGES"
+                    echo "$OLD_IMAGES" | xargs -I {} docker rmi ${DOCKER_IMAGE}:{} || true
+                fi
+            '''
         }
         
         success {
-            echo "✅ Pipeline completed successfully!"
+            echo "Pipeline completed successfully!"
             script {
                 if (params.ENVIRONMENT == 'production') {
-                    echo "🎉 Production deployment successful!"
+                    echo "Production deployment successful!"
                 }
             }
         }
         
         failure {
-            echo "❌ Pipeline failed!"
+            echo "Pipeline failed!"
         }
         
         unstable {
-            echo "⚠️ Pipeline completed with warnings"
+            echo "Pipeline completed with warnings"
         }
         
         cleanup {
-            echo "Cleaning workspace..."
-            script {
-                sh 'docker system prune -f --volumes || true'
-            }
+            echo "Final cleanup..."
+            sh 'docker system prune -f --volumes || true'
         }
     }
 }
