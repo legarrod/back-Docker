@@ -231,15 +231,16 @@ pipeline {
     post {
         always {
             echo "🧹 Cleaning up..."
-            // Limpiar imágenes Docker viejas
-            sh '''
-                # Mantener solo las últimas 5 imágenes
-                OLD_IMAGES=$(docker images ${DOCKER_IMAGE} --format "{{.Tag}}" | grep "^build-" | sort -nr | tail -n +6)
-                if [ ! -z "$OLD_IMAGES" ]; then
-                    echo "Removing old images: $OLD_IMAGES"
-                    echo "$OLD_IMAGES" | xargs -I {} docker rmi ${DOCKER_IMAGE}:{} || true
-                fi
-            '''
+            script {
+                sh '''
+                    # Mantener solo las últimas 5 imágenes
+                    OLD_IMAGES=$(docker images ${DOCKER_IMAGE} --format "{{.Tag}}" | grep "^build-" | sort -nr | tail -n +6)
+                    if [ ! -z "$OLD_IMAGES" ]; then
+                        echo "Removing old images: $OLD_IMAGES"
+                        echo "$OLD_IMAGES" | xargs -I {} docker rmi ${DOCKER_IMAGE}:{} || true
+                    fi
+                '''
+            }
         }
         
         success {
@@ -253,7 +254,6 @@ pipeline {
         
         failure {
             echo "❌ Pipeline failed!"
-            // Aquí podrías agregar notificaciones (Slack, email, etc.)
         }
         
         unstable {
@@ -261,8 +261,10 @@ pipeline {
         }
         
         cleanup {
-            // Limpiar workspace si es necesario
             echo "Cleaning workspace..."
-            sh 'docker system prune -f --volumes || true'
+            script {
+                sh 'docker system prune -f --volumes || true'
+            }
         }
     }
+}
