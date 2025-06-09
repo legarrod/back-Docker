@@ -46,7 +46,6 @@ pipeline {
             steps {
                 echo "📦 Installing dependencies..."
                 script {
-                    // Método robusto para instalar dependencias
                     sh '''
                         echo "Cleaning npm cache..."
                         npm cache clean --force
@@ -71,7 +70,6 @@ pipeline {
             steps {
                 echo "🔍 Running code quality checks..."
                 script {
-                    // Solo ejecutar si existen los scripts
                     sh '''
                         if grep -q '"lint"' package.json; then
                             echo "Running linting..."
@@ -185,10 +183,8 @@ pipeline {
                     sh '''
                         echo "Testing Docker container..."
                         
-                        # Verificar que la imagen se ejecuta correctamente
                         docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} echo "Container test successful!"
                         
-                        # Si hay un health check, ejecutarlo
                         if docker inspect ${DOCKER_IMAGE}:${DOCKER_TAG} | grep -q "Healthcheck"; then
                             echo "Running health check..."
                             docker run --rm -d --name test-container ${DOCKER_IMAGE}:${DOCKER_TAG}
@@ -217,10 +213,6 @@ pipeline {
                     
                     sh '''
                         echo "Deploying ${DOCKER_IMAGE}:${DOCKER_TAG} to ${ENVIRONMENT}"
-                        
-                        # Aquí irían los comandos específicos de deploy
-                        # Por ejemplo, actualizar docker-compose, kubernetes, etc.
-                        
                         echo "Deployment to ${ENVIRONMENT} completed!"
                     '''
                 }
@@ -233,7 +225,6 @@ pipeline {
             echo "🧹 Cleaning up..."
             script {
                 sh '''
-                    # Mantener solo las últimas 5 imágenes
                     OLD_IMAGES=$(docker images ${DOCKER_IMAGE} --format "{{.Tag}}" | grep "^build-" | sort -nr | tail -n +6)
                     if [ ! -z "$OLD_IMAGES" ]; then
                         echo "Removing old images: $OLD_IMAGES"
