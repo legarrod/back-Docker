@@ -190,24 +190,12 @@ pipeline {
         }
         
         stage('Deploy to Environment') {
-            when {
-                anyOf {
-                    expression { return params.ENVIRONMENT == 'staging' }
-                    expression { return params.ENVIRONMENT == 'production' }
-                }
-            }
             steps {
-                echo "Deploying to ${params.ENVIRONMENT}..."
-                script {
-                    if (params.ENVIRONMENT == 'production') {
-                        input message: 'Deploy to production?', ok: 'Deploy'
-                    }
-                    
-                    sh '''
-                        echo "Deploying ${DOCKER_IMAGE}:${DOCKER_TAG} to ${ENVIRONMENT}"
-                        echo "Deployment to ${ENVIRONMENT} completed!"
-                    '''
-                }
+                echo "Deploying to development..."
+                sh '''
+                    echo "Deploying ${DOCKER_IMAGE}:${DOCKER_TAG} to development"
+                    echo "Development deployment completed!"
+                '''
             }
         }
     }
