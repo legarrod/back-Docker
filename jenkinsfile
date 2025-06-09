@@ -62,8 +62,8 @@ pipeline {
         
         stage('Code Quality & Linting') {
             when {
-                not { 
-                    params.SKIP_TESTS 
+                not {
+                    expression { return params.SKIP_TESTS }
                 }
             }
             steps {
@@ -81,8 +81,8 @@ pipeline {
         
         stage('Unit Tests') {
             when {
-                not { 
-                    params.SKIP_TESTS 
+                not {
+                    expression { return params.SKIP_TESTS }
                 }
             }
             steps {
@@ -110,12 +110,12 @@ pipeline {
         stage('Integration Tests') {
             when {
                 allOf {
-                    not { 
-                        params.SKIP_INTEGRATION_TESTS 
+                    not {
+                        expression { return params.SKIP_INTEGRATION_TESTS }
                     }
                     anyOf {
-                        equals expected: 'staging', actual: params.ENVIRONMENT
-                        equals expected: 'production', actual: params.ENVIRONMENT
+                        expression { return params.ENVIRONMENT == 'staging' }
+                        expression { return params.ENVIRONMENT == 'production' }
                     }
                 }
             }
@@ -193,8 +193,8 @@ pipeline {
         stage('Deploy to Environment') {
             when {
                 anyOf {
-                    equals expected: 'staging', actual: params.ENVIRONMENT
-                    equals expected: 'production', actual: params.ENVIRONMENT
+                    expression { return params.ENVIRONMENT == 'staging' }
+                    expression { return params.ENVIRONMENT == 'production' }
                 }
             }
             steps {
