@@ -193,7 +193,7 @@ pipeline {
             steps {
                 echo "Deploying to ${params.ENVIRONMENT}..."
                 sh '''
-                    CONTAINER_NAME="${DOCKER_IMAGE}-${NODE_ENV}"
+                    CONTAINER_NAME="$node-backend"
                     echo "Stopping and removing previous container if exists..."
                     docker stop $CONTAINER_NAME || true
                     docker rm $CONTAINER_NAME || true
