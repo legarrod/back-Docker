@@ -1,6 +1,14 @@
 pipeline {
     agent any
     
+    parameters {
+        string(name: 'DOCKER_TAG', defaultValue: 'latest', description: 'Docker tag for the image')
+        choice(name: 'ENVIRONMENT', choices: ['development', 'staging', 'production'], description: 'Deployment environment')
+        booleanParam(name: 'SKIP_TESTS', defaultValue: false, description: 'Skip unit tests')
+        booleanParam(name: 'SKIP_INTEGRATION_TESTS', defaultValue: false, description: 'Skip integration tests')
+        booleanParam(name: 'FORCE_DEPLOY', defaultValue: false, description: 'Force deployment even if tests fail')
+    }
+    
     tools {
         nodejs 'NodeJS-18'
     }
@@ -58,7 +66,7 @@ pipeline {
         
         stage('Code Quality & Linting') {
             when {
-                not { params.SKIP_TESTS }
+                not { params.SKIP_TESTS == true }
             }
             steps {
                 echo "🔍 Running code quality checks..."
@@ -78,7 +86,7 @@ pipeline {
         
         stage('Unit Tests') {
             when {
-                not { params.SKIP_TESTS }
+                not { params.SKIP_TESTS == true }
             }
             steps {
                 echo "🧪 Running unit tests..."
@@ -105,7 +113,7 @@ pipeline {
         stage('Integration Tests') {
             when {
                 allOf {
-                    not { params.SKIP_INTEGRATION_TESTS }
+                    not { params.SKIP_INTEGRATION_TESTS == true }
                     anyOf {
                         equals expected: 'staging', actual: params.ENVIRONMENT
                         equals expected: 'production', actual: params.ENVIRONMENT
@@ -258,4 +266,3 @@ pipeline {
             sh 'docker system prune -f --volumes || true'
         }
     }
-}
