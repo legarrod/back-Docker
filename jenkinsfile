@@ -198,7 +198,7 @@ pipeline {
                     echo "Creating network if not exists..."
                     docker network inspect app-network >/dev/null 2>&1 || docker network create app-network
 
-                    echo "Stopping and removing previous container if exists..."
+                    # Parar contenedor anterior si existe
                     docker stop $CONTAINER_NAME || true
                     docker rm $CONTAINER_NAME || true
 
