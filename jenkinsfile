@@ -191,7 +191,7 @@ pipeline {
         
         stage('Deploy to Environment') {
             steps {
-                echo "Deploying to ${params.ENVIRONMENT}..."
+                echo "Deploying to.."
                 sh '''
                     CONTAINER_NAME="node-backend"
                     echo "Stopping and removing previous container if exists..."
