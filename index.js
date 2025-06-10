@@ -220,7 +220,7 @@ pool.on('error', (err) => {
  *                   type: string
  *                   example: PostgreSQL
  */
-app.get('/health', (req, res) => {
+app.get('/api/health', (req, res) => {
   res.json({
     status: 'OK',
     timestamp: new Date().toISOString(),
