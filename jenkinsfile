@@ -191,7 +191,7 @@ pipeline {
         
         stage('Deploy to Environment') {
             steps {
-                echo "Deploying"
+                echo "Deploying "
                 sh '''
                     CONTAINER_NAME="node-backend"
 
